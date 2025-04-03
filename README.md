@@ -4,21 +4,21 @@
 
 Expects an existing MSSQL database with two tables:
 
-	- words:
-		- word (nvarchar(50), primary key)
-		- offensiveness (int)
-		- commonness (int)
-	- word_types:
-		- word (nvarchar(50), primary key)
-		- type (nvarchar(50), primary key)
+- words:
+	- word (nvarchar(50), primary key)
+	- offensiveness (int)
+	- commonness (int)
+- word_types:
+	- word (nvarchar(50), primary key)
+	- type (nvarchar(50), primary key)
 
 The following environment variables are also required:
 
-	- DB_HOST: database host server
-	- DB_USER: database username
-	- DB_PASSWORD: database password
-	- DB_DATABASE: name of database
-	- CHATGPT_API_KEY: API key for ChatGPT
+- DB_HOST: database host server
+- DB_USER: database username
+- DB_PASSWORD: database password
+- DB_DATABASE: name of database
+- CHATGPT_API_KEY: API key for ChatGPT
 
 ## Description
 
