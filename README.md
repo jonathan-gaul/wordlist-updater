@@ -22,4 +22,4 @@ The following environment variables are also required:
 
 ## Description
 
-Fetches the latest "alpha word list" from https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt and runs it through ChatGPT, generating a list of words with their offensiveness and commonness scores. The script then updates the database with the new words and their scores.
+Fetches the latest "alpha word list" from https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt and runs it through ChatGPT, generating a list of words with their offensiveness and commonness scores, and type of word. The script then updates the database with the new words and their scores, and adds type mappings.
