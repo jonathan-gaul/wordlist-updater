@@ -10,6 +10,7 @@ type Word = {
     Word: string
     Offensiveness: int
     Commonness: int
+    Sentiment: int
     Types: string array
 }
 
@@ -84,7 +85,19 @@ let getWordScores (words: string array) = async {
                     "Content-Type", "application/json"
                 ],
                 body = TextRequest (JsonSerializer.Serialize {|
-                    input = $"For each of the following words, generate two values, from 1 to 10.  The first value is how offensive the word could be, the second value is how common the word is in everyday use.  For each word, the word must come first, then the offensiveness score, then the commonness score, then the type of the word (e.g. 'noun', 'adjective' etc).  List each word on its own line, with the two values in order, separated by commas.  Do not include spaces.  Do not include any numbers or preamble. Only list the words.  The words are: {String.Join(',', words)}"
+                    input = $"""
+For each of the following words, generate the following values:
+The first value is how offensive the word could be.
+The second value is how common the word is in everyday use.  
+The third value is a 'positivity rating' from -10 to +10 where -10 is extremely negative, and +10 is extremely positive.
+The fourth value is the type of the word (e.g. 'noun', 'adjective' etc).
+For each word, the word must come first, then the offensiveness score, then the commonness score, then the positivity rating, then the type of the word.
+List each word on its own line, with the two values in order, separated by commas.  
+Do not include spaces.
+Do not include any numbers or preamble. 
+Only list the words.
+The words are: {String.Join(',', words)}
+"""
                     model = model
                 |}))
         with
@@ -107,7 +120,8 @@ let getWordScores (words: string array) = async {
                         Word = x.[0] |> trim
                         Offensiveness = int x.[1]
                         Commonness = int x.[2]
-                        Types = x.[3].Split '/' |> Array.map trim
+                        Sentiment = int x.[3]
+                        Types = x.[4].Split '/' |> Array.map trim
                     }
                 with 
                 | ex -> 
@@ -123,11 +137,12 @@ let updateWordsInDatabase (connection: SqlConnection) (words: Word array) = asyn
     let paramList = [
         for i in 1..words.Length do
             let entry = words.[i-1]
-            command.Parameters.AddWithValue($"@word{i}", entry.Word) |> ignore
-            command.Parameters.AddWithValue($"@offensiveness{i}", entry.Offensiveness) |> ignore
-            command.Parameters.AddWithValue($"@commonness{i}", entry.Commonness) |> ignore
+            command.Parameters.AddWithValue($"@w{i}", entry.Word) |> ignore
+            command.Parameters.AddWithValue($"@o{i}", entry.Offensiveness) |> ignore
+            command.Parameters.AddWithValue($"@c{i}", entry.Commonness) |> ignore
+            command.Parameters.AddWithValue($"@s{i}", entry.Sentiment) |> ignore
 
-            yield $"(@word{i}, @offensiveness{i}, @commonness{i})"
+            yield $"(@w{i}, @o{i}, @c{i}, @s{i})"
     ]
 
     command.CommandText <- $"""
@@ -135,15 +150,16 @@ MERGE INTO words WITH (HOLDLOCK) AS target
 USING (
     VALUES 
         {String.Join(", ", paramList)}
-    ) AS source(word, offensiveness, commonness)
+    ) AS source(word, offensiveness, commonness, sentiment)
 ON target.word = source.word
 WHEN MATCHED THEN
     UPDATE SET 
         offensiveness = source.offensiveness, 
-        commonness = source.commonness
+        commonness = source.commonness,
+        sentiment = source.sentiment
 WHEN NOT MATCHED THEN
-    INSERT (word, offensiveness, commonness) 
-    VALUES (source.word, source.offensiveness, source.commonness);
+    INSERT (word, offensiveness, commonness, sentiment) 
+    VALUES (source.word, source.offensiveness, source.commonness, source.sentiment);
 """
 
     command.CommandType <- System.Data.CommandType.Text

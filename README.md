@@ -8,6 +8,7 @@ Expects an existing MSSQL database with two tables:
 	- word (nvarchar(50), primary key)
 	- offensiveness (int)
 	- commonness (int)
+	- sentiment (int)
 - word_types:
 	- word (nvarchar(50), primary key)
 	- type (nvarchar(50), primary key)
