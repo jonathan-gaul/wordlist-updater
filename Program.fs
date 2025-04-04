@@ -39,7 +39,9 @@ type GPTResponse = {
 }
 
 let nullOrBlank str = String.IsNullOrWhiteSpace(str)
-let trim (str : string) = str.Trim()
+let trim (str: string) = str.Trim()
+let split (sep: string) (str: string) = str.Split([|sep|], StringSplitOptions.RemoveEmptyEntries)
+let join (sep: char) (str: string seq) = String.Join(sep, str)
 
 let getWordList (startWord: string option) = 
     asyncSeq {
@@ -48,11 +50,12 @@ let getWordList (startWord: string option) =
 
         let mutable started = startWord.IsNone
 
+        printfn("Started streaming word list...")
         while not reader.EndOfStream do
             let! line = reader.ReadLineAsync() |> Async.AwaitTask            
             let line = trim line
 
-            if not started && line = startWord.Value then 
+            if not started && line >= startWord.Value then 
                 started <- true
 
             if started && not (nullOrBlank line) then
@@ -78,19 +81,15 @@ let getWordScores (words: string array) = async {
                     "Authorization", $"Bearer {apiKey}"
                     "Content-Type", "application/json"
                 ],
-                body = TextRequest (JsonSerializer.Serialize {|
+                body = TextRequest (JsonSerializer.Serialize {|                
+
                     input = $"""
-For each of the following words, generate the following values:
-The first value is how offensive the word could be.
-The second value is how common the word is in everyday use.  
-The third value is a 'positivity rating' from -10 to +10 where -10 is extremely negative, and +10 is extremely positive.
-The fourth value is the type of the word (e.g. 'noun', 'adjective' etc).
-For each word, the word must come first, then the offensiveness score, then the commonness score, then the positivity rating, then the type of the word.
-List each word on its own line, with the two values in order, separated by commas.  
-Do not include spaces.
-Do not include any numbers or preamble. 
-Only list the words.
-The words are: {String.Join(',', words)}
+For each of the following words, rate them on offensiveness and commonness (each on a scale from 0 to 10) and sentiment (on a scale from -10 to +10), and provide the word type.
+Format the response strictly as CSV with no extra details or spacing—no explanations, headers, or extra text. 
+Each word should be listed on its own line in the order given. 
+The columns must appear exactly in this order: Word, Offensiveness, Commonness, Sentiment, Word Type. 
+Provide only the raw CSV output. Do not include any quotes or formatting.
+The words are: {join ',' words}
 """
                     model = model
                 |}))
@@ -102,12 +101,12 @@ The words are: {String.Join(',', words)}
     return 
         if nullOrBlank response then
             [||]
-        else 
+        else
             response
             |> JsonSerializer.Deserialize<GPTResponse>
             |> fun x -> x.output[0].content[0].text
-            |> fun x -> x.Split([|'\n'|], StringSplitOptions.RemoveEmptyEntries)
-            |> Array.map (fun x -> x.Split([|','|], StringSplitOptions.RemoveEmptyEntries))
+            |> split "\n"
+            |> Array.map (split ",")
             |> Array.map (fun x -> 
                 try 
                     Some {
@@ -118,8 +117,8 @@ The words are: {String.Join(',', words)}
                         Types = x.[4].Split '/' |> Array.map trim
                     }
                 with 
-                | ex -> 
-                    printfn($"Skipping due to invalid value in record: {String.Join(',', x)}")
+                | ex ->
+                    printfn($"Skipping due to invalid value in record: {join ',' x}")
                     None)
             |> Array.choose id
             |> Array.filter (fun x -> x.Offensiveness >= 0 && x.Commonness >= 0 && not (nullOrBlank x.Word))
@@ -143,7 +142,7 @@ let updateWordsInDatabase (connection: SqlConnection) (words: Word array) = asyn
 MERGE INTO words WITH (HOLDLOCK) AS target
 USING (
     VALUES 
-        {String.Join(", ", paramList)}
+        {join ',' paramList}
     ) AS source(word, offensiveness, commonness, sentiment)
 ON target.word = source.word
 WHEN MATCHED THEN
@@ -203,7 +202,7 @@ WHEN NOT MATCHED THEN
                 insertCommand.Parameters.AddWithValue($"@type{i}", word.Types.[i-1]) |> ignore
                 yield $"(@word, @type{i})"
         ]
-        insertCommand.CommandText <- $"INSERT INTO word_types (word, type) VALUES {String.Join(',', paramList)}"
+        insertCommand.CommandText <- $"INSERT INTO word_types (word, type) VALUES {join ',' paramList}"
 
         let! _ = insertCommand.ExecuteNonQueryAsync() |> Async.AwaitTask
         ()
