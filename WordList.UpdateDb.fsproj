@@ -6,6 +6,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Args.fs" />
+    <None Include="README.md" />
+    <None Include=".gitignore" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

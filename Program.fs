@@ -39,14 +39,21 @@ type GPTResponse = {
 
 let nullOrBlank str = String.IsNullOrWhiteSpace(str)
 
-let getWordList () = 
+let getWordList (startWord: string option) = 
     asyncSeq {
         let! response = Http.AsyncRequestStream "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
         use reader = new System.IO.StreamReader(response.ResponseStream)
 
+        let mutable started = startWord.IsNone
+
         while not reader.EndOfStream do
             let! line = reader.ReadLineAsync() |> Async.AwaitTask
-            if not (nullOrBlank line) then
+            let line = line.Trim()
+
+            if not started && line = startWord.Value then 
+                started <- true
+
+            if started && not (nullOrBlank line) then
                 yield line.Trim()
     }
 
@@ -103,7 +110,7 @@ let getWordScores (words: string array) = async {
                     }
                 with 
                 | ex -> 
-                    printfn($"Skipping due to invalid value in record: {x}")
+                    printfn($"Skipping due to invalid value in record: {String.Join(',', x)}")
                     None)
             |> Array.choose id
             |> Array.filter (fun x -> x.Offensiveness >= 0 && x.Commonness >= 0 && not (nullOrBlank x.Word))
@@ -113,38 +120,62 @@ let updateWordsInDatabase (connection: SqlConnection) (words: Word array) = asyn
     use command = connection.CreateCommand()    
     
     let paramList = [
-        for i in 1..words.Length do            
-            command.Parameters.AddWithValue($"@word{i}", words.[i-1].Word) |> ignore
-            command.Parameters.AddWithValue($"@offensiveness{i}", words.[i-1].Offensiveness) |> ignore
-            command.Parameters.AddWithValue($"@commonness{i}", words.[i-1].Commonness) |> ignore
+        for i in 1..words.Length do
+            let entry = words.[i-1]
+            command.Parameters.AddWithValue($"@word{i}", entry.Word) |> ignore
+            command.Parameters.AddWithValue($"@offensiveness{i}", entry.Offensiveness) |> ignore
+            command.Parameters.AddWithValue($"@commonness{i}", entry.Commonness) |> ignore
 
             yield $"(@word{i}, @offensiveness{i}, @commonness{i})"
     ]
 
     command.CommandText <- $"""
-MERGE INTO words
-USING (VALUES {String.Join(", ", paramList)}) AS source (word, offensiveness, commonness)
-ON words.word = source.word
+MERGE INTO words WITH (HOLDLOCK) AS target
+USING (
+    VALUES 
+        {String.Join(", ", paramList)}
+    ) AS source(word, offensiveness, commonness)
+ON target.word = source.word
 WHEN MATCHED THEN
-    UPDATE SET offensiveness = source.offensiveness, commonness = source.commonness
+    UPDATE SET 
+        offensiveness = source.offensiveness, 
+        commonness = source.commonness
 WHEN NOT MATCHED THEN
-    INSERT (word, offensiveness, commonness) VALUES (source.word, source.offensiveness, source.commonness);
+    INSERT (word, offensiveness, commonness) 
+    VALUES (source.word, source.offensiveness, source.commonness);
 """
-    
+
+    command.CommandType <- System.Data.CommandType.Text
+    command.EnableOptimizedParameterBinding <- true
+
     printfn($"updating database with {words.Length} word(s)")
 
     // If we hit a duplicate key error, just retry as the upsert should handle it.
-    let mutable retry = false
+    let mutable retry = true
     let mutable updatedCount = 0
 
     while retry do
         try
             let! count = command.ExecuteNonQueryAsync() |> Async.AwaitTask
             updatedCount <- count
+            retry <- false
         with
-        | :? SqlException as ex when ex.Number = 2601 -> 
+        | :? SqlException as ex when ex.Number = 2601 || ex.Number = 0x80131904 -> 
             printfn("Duplicate key error, retrying...")
             retry <- true
+        | :? SqlException as ex ->
+            printfn "SQL EXCEPTION [%d]:" ex.Number
+            printfn "%s" (ex.ToString())
+            raise ex
+        | :? AggregateException as ex ->
+            match ex.InnerException with
+            | :? SqlException as sqlEx when sqlEx.Number = 2601 || sqlEx.Number = 0x80131904 ->
+                printfn("Duplicate key error, retrying...")
+                retry <- true
+            | iex -> 
+                raise iex
+
+    printfn($"updated {updatedCount} record(s)")
 
     // Now update word types. There can be multiple types for a word, so they go into a separate table.
     for word in words do
@@ -169,14 +200,19 @@ WHEN NOT MATCHED THEN
     return updatedCount
 }
 
-printfn("Getting word list")
-let wordList = getWordList()
-printfn("Word list retrieved")
+let options = Args.parseCommandLine
 
 printfn("Connecting to database")
 let connection = getDatabaseConnection()
 connection.Open()
 printfn("Connected to database")
+
+if options.reset then
+    printfn("Resetting database")
+    use command = connection.CreateCommand()
+    command.CommandText <- "TRUNCATE TABLE words; TRUNCATE TABLE word_types;"
+    command.ExecuteNonQuery() |> ignore
+    printfn("Database reset")
 
 printfn("Processing word list")
 
@@ -193,15 +229,36 @@ let runLimitedAsync (workflow: Async<'T>) = async {
 }
 
 let updated = 
-    getWordList ()
-    |> AsyncSeq.bufferByCount 50
-    |> AsyncSeq.mapAsyncParallel (fun chunk -> runLimitedAsync (async {
-        printfn($"processing chunk with size {chunk.Length}")
-        let! scores = getWordScores chunk
-        return! updateWordsInDatabase connection scores
-    }))
-    |> AsyncSeq.sum
-    |> Async.RunSynchronously
+    if options.only.IsSome then        
+        printfn($"Only processing {options.only.Value}")
+        let scores = getWordScores [| options.only.Value |] |> Async.RunSynchronously
+        updateWordsInDatabase connection scores |> Async.RunSynchronously
+    else 
+        let startWord = 
+            if options.resume then
+                printfn("Retrieving last word from database...")
+                use lastCommand = connection.CreateCommand()
+                lastCommand.CommandText <- "SELECT TOP 1 word FROM words ORDER BY word DESC"
+                use reader = lastCommand.ExecuteReader()
+                if reader.Read() then
+                    let word = reader.GetString(0)
+                    printfn($"Resuming from {word}")
+                    Some (word)
+                else
+                    None
+            else
+                None
+    
+        startWord
+        |> getWordList 
+        |> AsyncSeq.bufferByCount 50
+        |> AsyncSeq.mapAsyncParallel (fun chunk -> runLimitedAsync (async {
+            printfn($"processing chunk with size {chunk.Length}")
+            let! scores = getWordScores chunk
+            return! updateWordsInDatabase connection scores
+        }))
+        |> AsyncSeq.sum
+        |> Async.RunSynchronously
 
 connection.Close()
 printfn($"Updated {updated} record(s)")
