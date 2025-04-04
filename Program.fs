@@ -60,13 +60,7 @@ let getWordList (startWord: string option) =
     }
 
 let getDatabaseConnection () = 
-    let dbHost = Environment.GetEnvironmentVariable("DB_HOST")
-    let dbUser = Environment.GetEnvironmentVariable("DB_USER")
-    let dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD")
-    let dbDatabase = Environment.GetEnvironmentVariable("DB_DATABASE")
-
-    let connectionString = $"Server={dbHost};Uid={dbUser};Pwd={dbPassword};Database={dbDatabase};Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True;"
-
+    let connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING")
     new SqlConnection(connectionString)
 
 let getWordScores (words: string array) = async {

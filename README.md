@@ -15,10 +15,7 @@ Expects an existing MSSQL database with two tables:
 
 The following environment variables are also required:
 
-- DB_HOST: database host server
-- DB_USER: database username
-- DB_PASSWORD: database password
-- DB_DATABASE: name of database
+- DB_CONNECTION_STRING: Connection string for SQL server database._
 - CHATGPT_API_KEY: API key for ChatGPT
 
 ## Description
