@@ -38,6 +38,7 @@ type GPTResponse = {
 }
 
 let nullOrBlank str = String.IsNullOrWhiteSpace(str)
+let trim (str : string) = str.Trim()
 
 let getWordList (startWord: string option) = 
     asyncSeq {
@@ -47,14 +48,14 @@ let getWordList (startWord: string option) =
         let mutable started = startWord.IsNone
 
         while not reader.EndOfStream do
-            let! line = reader.ReadLineAsync() |> Async.AwaitTask
-            let line = line.Trim()
+            let! line = reader.ReadLineAsync() |> Async.AwaitTask            
+            let line = trim line
 
             if not started && line = startWord.Value then 
                 started <- true
 
             if started && not (nullOrBlank line) then
-                yield line.Trim()
+                yield line
     }
 
 let getDatabaseConnection () = 
@@ -103,10 +104,10 @@ let getWordScores (words: string array) = async {
             |> Array.map (fun x -> 
                 try 
                     Some {
-                        Word = x.[0] 
+                        Word = x.[0] |> trim
                         Offensiveness = int x.[1]
                         Commonness = int x.[2]
-                        Types = x.[3].Split '/'
+                        Types = x.[3].Split '/' |> Array.map trim
                     }
                 with 
                 | ex -> 
@@ -229,36 +230,40 @@ let runLimitedAsync (workflow: Async<'T>) = async {
 }
 
 let updated = 
-    if options.only.IsSome then        
-        printfn($"Only processing {options.only.Value}")
-        let scores = getWordScores [| options.only.Value |] |> Async.RunSynchronously
-        updateWordsInDatabase connection scores |> Async.RunSynchronously
+    if options.noUpdate then         
+        printfn("No update requested, skipping database update")
+        0
     else 
-        let startWord = 
-            if options.resume then
-                printfn("Retrieving last word from database...")
-                use lastCommand = connection.CreateCommand()
-                lastCommand.CommandText <- "SELECT TOP 1 word FROM words ORDER BY word DESC"
-                use reader = lastCommand.ExecuteReader()
-                if reader.Read() then
-                    let word = reader.GetString(0)
-                    printfn($"Resuming from {word}")
-                    Some (word)
+        if options.only.IsSome then        
+            printfn($"Only processing {options.only.Value}")
+            let scores = getWordScores [| options.only.Value |] |> Async.RunSynchronously
+            updateWordsInDatabase connection scores |> Async.RunSynchronously
+        else 
+            let startWord = 
+                if options.resume then
+                    printfn("Retrieving last word from database...")
+                    use lastCommand = connection.CreateCommand()
+                    lastCommand.CommandText <- "SELECT TOP 1 word FROM words ORDER BY word DESC"
+                    use reader = lastCommand.ExecuteReader()
+                    if reader.Read() then
+                        let word = reader.GetString(0)
+                        printfn($"Resuming from {word}")
+                        Some (word)
+                    else
+                        None
                 else
                     None
-            else
-                None
     
-        startWord
-        |> getWordList 
-        |> AsyncSeq.bufferByCount 50
-        |> AsyncSeq.mapAsyncParallel (fun chunk -> runLimitedAsync (async {
-            printfn($"processing chunk with size {chunk.Length}")
-            let! scores = getWordScores chunk
-            return! updateWordsInDatabase connection scores
-        }))
-        |> AsyncSeq.sum
-        |> Async.RunSynchronously
+            startWord
+            |> getWordList 
+            |> AsyncSeq.bufferByCount 50
+            |> AsyncSeq.mapAsyncParallel (fun chunk -> runLimitedAsync (async {
+                printfn($"processing chunk with size {chunk.Length}")
+                let! scores = getWordScores chunk
+                return! updateWordsInDatabase connection scores
+            }))
+            |> AsyncSeq.sum
+            |> Async.RunSynchronously
 
 connection.Close()
 printfn($"Updated {updated} record(s)")
