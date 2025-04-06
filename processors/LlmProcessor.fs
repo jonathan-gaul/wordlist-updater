@@ -130,13 +130,15 @@ let start config validationProcessor =
                     let! lines = scoreWords config words
                     lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)                    
         }
-        shutdown = fun withChildren -> async {
+        stopped = fun priority withChildren -> async {
             let! lines = buffer.ToArray() |> scoreWords config 
             lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)
 
-            if withChildren then
+            match withChildren with 
+            | ProcessorMessage.StopChildren.WithChildren ->
                 printfn "Stopping LLM Processor children..."
-                Processor.stop validationProcessor true |> Async.RunSynchronously
+                Processor.stop validationProcessor priority withChildren |> Async.RunSynchronously
                 printfn "Stopped LLM Processor children."
+            | _ -> ()
         }
     }

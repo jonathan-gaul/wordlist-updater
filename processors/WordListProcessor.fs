@@ -42,10 +42,12 @@ let start llmProcessor =
 
                 printfn "Finished streaming word list - %d words processed from %s" count url
         }
-        shutdown = fun withChildren -> async {
-            if withChildren then
+        stopped = fun priority withChildren -> async {
+            match withChildren with
+            | ProcessorMessage.StopChildren.WithChildren ->             
                 printfn "Stopping Word List Processor children..."
-                Processor.stop llmProcessor true |> Async.RunSynchronously
+                Processor.stop llmProcessor priority withChildren |> Async.RunSynchronously
                 printfn "Stopped Word List Processor children."
+            | _ -> ()
         }
     }

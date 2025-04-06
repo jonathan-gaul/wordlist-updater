@@ -6,6 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="messages\ProcessorMessage.fs" />
+    <Compile Include="messages\DbProcessorMessage.fs" />
+    <Compile Include="messages\ValidationProcessorMessage.fs" />
+    <Compile Include="messages\WordListProcessorMessage.fs" />
+    <Compile Include="messages\LlmProcessorMessage.fs" />
     <Compile Include="Util.fs" />
     <Compile Include="processors\Processor.fs" />
     <Compile Include="processors\DbProcessor.fs" />

@@ -1,24 +1,17 @@
 ﻿module Processor
 
 open System.Threading
+open ProcessorMessage
 
 // Base processor functions.
-
-/// Message which can be handled by a processor.
-type Message<'TMsg> =
-    /// Process a message.
-    | Process of 'TMsg
-
-    /// Shutdown the processor.
-    | Shutdown of bool
 
 /// Processor definition.
 type Processor<'TMsg> = 
     { /// The mailbox processor instance for this processor.
       mailboxProcessor: MailboxProcessor<Message<'TMsg>>
 
-      /// Event to signal when the processor has shut down.
-      shutdownEvent: ManualResetEvent }
+      /// Event to signal when the processor has stopped.
+      stopEvent: ManualResetEvent }
 
 /// Startup configuration options for the processor.
 type ProcessStartOptions<'TMsg> =
@@ -29,20 +22,20 @@ type ProcessStartOptions<'TMsg> =
       handler: 'TMsg -> Async<unit>
 
       /// Handler function to clean up resources on shutdown.
-      shutdown: bool -> Async<unit> }
+      stopped: StopPriority -> StopChildren -> Async<unit> }
 
     static member empty = {
         name = ""
         handler = fun _ -> async { () }
-        shutdown = fun _ -> async { () } }
+        stopped = fun _ _ -> async { () } }
 
 /// Start a simple processor with the given options.
 let start options = 
     // Create a shutdown event to signal when the processor has shut down.
-    let shutdownEvent = new ManualResetEvent(false)
+    let stopEvent = new ManualResetEvent(false)
 
     {
-        shutdownEvent = shutdownEvent
+        stopEvent = stopEvent
         mailboxProcessor = 
             MailboxProcessor.Start(fun inbox -> async {
                 let rec loop () = async {
@@ -50,10 +43,18 @@ let start options =
                     | Process msg -> 
                         msg |> options.handler |> Async.RunSynchronously
                         return! loop ()
-                    | Shutdown withChildren -> 
+                    | Stop (Lowest, withChildren, _) when inbox.CurrentQueueLength = 0 ->                        
+                            // If there are no items waiting in the queue, post a stop next message.
+                            Stop (Next, withChildren, Some Lowest) |> inbox.Post
+                            return! loop ()
+                    | Stop (Lowest, withChildren, _) ->
+                            // There are items remaining in the queue, so just post the message back to the end of the queue.
+                            Stop (Lowest, withChildren, Some Lowest) |> inbox.Post
+                            return! loop ()
+                    | Stop (Next, withChildren, actual) -> 
                         printfn "Stopping %s Processor..." options.name
-                        options.shutdown withChildren |> Async.RunSynchronously
-                        shutdownEvent.Set() |> ignore
+                        options.stopped (actual |> Option.defaultValue Next) withChildren |> Async.RunSynchronously
+                        stopEvent.Set() |> ignore
                         printfn "%s Processor stopped." options.name                        
                         return ()
                 }
@@ -68,9 +69,9 @@ let dispatch processor msg =
     processor.mailboxProcessor.Post(Process msg)
 
 /// Stop a processor and wait for it to shut down.
-let stop processor withChildren = async {
-    processor.mailboxProcessor.Post(Shutdown withChildren)
-    processor.shutdownEvent.WaitOne() |> ignore
+let stop processor priority withChildren = async {
+    Stop (priority, withChildren, None) |> processor.mailboxProcessor.Post
+    processor.stopEvent.WaitOne() |> ignore
 }
 
 /// Start a round-robin processor with the given options.
@@ -80,12 +81,12 @@ let startRoundRobin threadCount options =
     let shutdownEvent = new ManualResetEvent(false)
 
     {
-        shutdownEvent = shutdownEvent
+        stopEvent = shutdownEvent
 
         mailboxProcessor = 
             MailboxProcessor.Start(fun inbox -> async {
                 let counter = ref 0
-                let workers = [ for i in 0..threadCount -> start { name=options.name; handler=options.handler; shutdown=(fun _ -> async { () }) } ]
+                let workers = [ for i in 0..threadCount -> start { name=options.name; handler=options.handler; stopped=(fun _ _ -> async { () }) } ]
 
                 let rec loop () = async {
                     match! inbox.Receive() with
@@ -94,15 +95,28 @@ let startRoundRobin threadCount options =
                         counter.Value <- counter.Value + 1
                         msg |> dispatch workers[index]
                         return! loop ()
-                    | Shutdown withChildren ->
+                    | Stop (Lowest, withChildren, actual) when inbox.CurrentQueueLength = 0 ->
+                        let remaining =  workers |> List.sumBy (fun w -> w.mailboxProcessor.CurrentQueueLength)
+                        if remaining = 0 then
+                            // There are no items waiting in the queue, so we can shut down immediately.
+                            Stop (Next, withChildren, Some Lowest) |> inbox.Post
+                        else
+                            // Return the message to the end of the queue.
+                            Stop (Lowest, withChildren, actual) |> inbox.Post
+                    | Stop (Lowest, withChildren, actual) ->
+                        // We still have remaining items to process, so return the message to the end of the queue.
+                        Stop (Lowest, withChildren, actual) |> inbox.Post
+                    | Stop (Next, withChildren, actual) ->
                         printfn "Stopping %d %s Processors..." threadCount options.name
                         
+                        let actual = actual |> Option.defaultValue Next
+
                         // Shut down each worker and wait.
                         workers 
-                        |> List.iter (fun worker -> stop worker withChildren |> Async.RunSynchronously)
+                        |> List.iter (fun worker -> stop worker actual withChildren |> Async.RunSynchronously)
 
                         // Call the shutdown handler for the main processor.
-                        options.shutdown withChildren |> Async.RunSynchronously
+                        options.stopped actual withChildren |> Async.RunSynchronously
 
                         // Signal that the processor has shut down.
                         shutdownEvent.Set() |> ignore

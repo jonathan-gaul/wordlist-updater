@@ -128,7 +128,7 @@ let start config =
                     buffer.Clear()
                     words |> distinct |> updateWords connection |> ignore
         }
-        shutdown = fun _ -> async {            
+        stopped = fun _ _ -> async {            
             buffer.ToArray() |> distinct |> updateWords connection |> ignore
         }
     }

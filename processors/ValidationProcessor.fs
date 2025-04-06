@@ -70,10 +70,12 @@ let start config dbProcessor =
                     printfn "Skipping due to error in record: %s" record
                     printfn "Error: %s" ex.Message
         }
-        shutdown = fun withChildren -> async {
-            if withChildren then 
+        stopped = fun priority withChildren -> async {
+            match withChildren with
+            | ProcessorMessage.StopChildren.WithChildren ->
                 printfn "Stopping Validation Processor children..."
-                Processor.stop dbProcessor true |> Async.RunSynchronously
+                Processor.stop dbProcessor priority withChildren |> Async.RunSynchronously
                 printfn "Stopped Validation Processor children."
+            | _ -> ()
         }
     }

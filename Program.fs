@@ -1,4 +1,6 @@
 ﻿
+open ProcessorMessage
+
 // ======================================================================
 // Word List Updater
 // ----------------------------------------------------------------------
@@ -24,7 +26,7 @@ WordListProcessorMessage.ProcessUrl ("https://raw.githubusercontent.com/dwyl/eng
 |> Processor.dispatch wordListProcessor
 
 // Send a shutdown message to the Word List processor and wait for it to shut down.
-Processor.stop wordListProcessor true 
+Processor.stop wordListProcessor Lowest WithChildren 
 |> Async.RunSynchronously
 
 printfn "All processing finished: Exiting."
