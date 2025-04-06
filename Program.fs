@@ -20,7 +20,7 @@ let wordListProcessor =
     |> WordListProcessor.start
 
 // Send a filename to the Word List processor to download.
-WordListProcessor.ProcessUrl ("https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt", None)
+WordListProcessorMessage.ProcessUrl ("https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt", None)
 |> Processor.dispatch wordListProcessor
 
 // Send a shutdown message to the Word List processor and wait for it to shut down.

@@ -2,6 +2,7 @@
 
 open FSharp.Data
 open Util
+open WordListProcessorMessage
 
 // ======================================================================
 // Word List processor
@@ -9,13 +10,6 @@ open Util
 // - Fetches a word list.
 // - Sends each word individually to the LLM processor for scoring.
 // ======================================================================
-
-/// Message which can be handled by the LLM processor.
-// Extra messages could be added, for example if we wanted to be able to
-// retrieve a word list from a database or file instead.
-type Message =
-    /// Process a word list from a URL.
-    | ProcessUrl of string * string option
 
 /// Start the word list processor waiting for messages to process.
 /// The processor will output the word list to the given LLM processor.
@@ -41,7 +35,7 @@ let start llmProcessor =
                         | _ -> ()
 
                     if started && not (nullOrBlank line) then
-                        LlmProcessor.Process line |> Processor.dispatch llmProcessor
+                        LlmProcessorMessage.Process line |> Processor.dispatch llmProcessor
                         count <- count + 1
                         if count % 10000 = 0 then
                             printfn "Processed %d word(s)..." count

@@ -3,6 +3,7 @@
 open FSharp.Data
 open System.Text.Json
 open Util
+open LlmProcessorMessage
 
 // ======================================================================
 // LLM processor
@@ -12,11 +13,6 @@ open Util
 // - Sends the results to the validation processor.
 // ======================================================================
 
-/// Message which can be handled by the LLM processor.
-type Message =
-    /// Process a single word
-    | Process of string 
-    
 /// LLM processor configuration options.
 type Configuration =
     { /// Number of words to send to the LLM at once. 
@@ -72,7 +68,7 @@ let prompt = """You will be given a list of words.  For each word, generate a li
 	- offensiveness (on a scale from 0 to 10 as a whole number, where 0 is completely inoffensive and 10 is extremely offensive)
 	- commonness (on a scale from 0 to 10 as a whole number, where 0 is barely used, and 10 is extremely commonly used)
 	- sentiment (on a scale from -10 to 10 as a whole number, where 0 is neutral)
-	- word types (separated by / character, each word type must be a grammatically correct word type)
+	- word types (separated by / character, each word type must be one of noun, verb, adjective, adverb, pronoun, preposition, conjunction, interjection, article)
 Do not add headers, explanations, extra spaces or any formatting to the output.  Do not include any formatting. All words provided must be processed and listed in sequence. No words may be skipped or left out. Each word must only be listed once."""
 
 /// Score words by passing them to the LLM and returning the result as a list of strings.
@@ -132,7 +128,7 @@ let start config validationProcessor =
                     let words = buffer.ToArray()
                     buffer.Clear()
                     let! lines = scoreWords config words
-                    lines |> List.iter (fun line -> ValidationProcessor.Validate line |> Processor.dispatch validationProcessor)
+                    lines |> List.iter (fun line -> ValidationProcessor.Validate line |> Processor.dispatch validationProcessor)                    
         }
         shutdown = fun withChildren -> async {
             let! lines = buffer.ToArray() |> scoreWords config 

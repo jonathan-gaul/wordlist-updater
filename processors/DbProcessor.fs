@@ -2,6 +2,7 @@
 
 open Microsoft.Data.SqlClient
 open Util
+open DbProcessorMessage
 
 /// ======================================================================
 /// Database processor
@@ -10,22 +11,6 @@ open Util
 /// - Updates the database with the word records.
 /// ======================================================================
 
-/// Represents a word with associated metadata.
-type WordRecord = 
-    { word: string 
-      offensiveness: int
-      commonness: int
-      sentiment: int
-      types: string array }
-
-    /// Default value for a word record.
-    static member empty = 
-        { word = ""
-          offensiveness = 0
-          commonness = 0
-          sentiment = 0
-          types = [||] }
-
 /// Configuration options for the database processor.
 type Configuration =
     { /// Number of words to process in a batch.
@@ -33,11 +18,6 @@ type Configuration =
 
       /// Connection string for the database.
       connectionString: string }
-
-/// Message which can be handled by the database processor.
-type Message =
-    /// Update a word record in the database.
-    | Update of WordRecord
 
 /// Filter out duplicate words from the list.
 let distinct words = words |> Array.distinctBy (fun w -> w.word)    
