@@ -128,11 +128,11 @@ let start config validationProcessor =
                     let words = buffer.ToArray()
                     buffer.Clear()
                     let! lines = scoreWords config words
-                    lines |> List.iter (fun line -> ValidationProcessor.Validate line |> Processor.dispatch validationProcessor)                    
+                    lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)                    
         }
         shutdown = fun withChildren -> async {
             let! lines = buffer.ToArray() |> scoreWords config 
-            lines |> List.iter (fun line -> ValidationProcessor.Validate line |> Processor.dispatch validationProcessor)
+            lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)
 
             if withChildren then
                 printfn "Stopping LLM Processor children..."
