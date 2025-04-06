@@ -6,9 +6,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Util.fs" />
+    <Compile Include="processors\Processor.fs" />
+    <Compile Include="processors\DbProcessor.fs" />
+    <Compile Include="processors\ValidationProcessor.fs" />
+    <Compile Include="processors\LlmProcessor.fs" />
+    <Compile Include="processors\WordListProcessor.fs" />
+    <Content Include="prompt - Copy.txt" />
+    <Content Include="prompt.txt" />
     <None Include="README.md" />
     <None Include=".gitignore" />
-    <Compile Include="Args.fs" />
+    <Compile Include="Config.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
