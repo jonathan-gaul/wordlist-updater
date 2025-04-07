@@ -13,10 +13,10 @@ open WordListProcessorMessage
 
 /// Start the word list processor waiting for messages to process.
 /// The processor will output the word list to the given LLM processor.
-let start llmProcessor =
+let start =
     Processor.start {
         name = "Word List" 
-        handler = fun msg -> async {
+        handler = fun self msg -> async {
             match msg with
             | ProcessUrl (url, startWord) ->
                 let response = Http.RequestStream url
@@ -35,19 +35,13 @@ let start llmProcessor =
                         | _ -> ()
 
                     if started && not (nullOrBlank line) then
-                        LlmProcessorMessage.Process line |> Processor.dispatch llmProcessor
+                        LlmProcessorMessage.Process line |> Processor.dispatch
                         count <- count + 1
                         if count % 10000 = 0 then
                             printfn "Processed %d word(s)..." count
 
                 printfn "Finished streaming word list - %d words processed from %s" count url
         }
-        stopped = fun priority withChildren -> async {
-            match withChildren with
-            | ProcessorMessage.StopChildren.WithChildren ->             
-                printfn "Stopping Word List Processor children..."
-                Processor.stop llmProcessor priority withChildren |> Async.RunSynchronously
-                printfn "Stopped Word List Processor children."
-            | _ -> ()
-        }
+        stopped = fun _ _ -> async { () }
+        register = true
     }

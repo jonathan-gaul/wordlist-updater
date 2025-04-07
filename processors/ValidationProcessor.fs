@@ -34,48 +34,36 @@ let validTypes = Set.ofArray [|
 |]
 
 /// Validation processor configuration options.
-let start config dbProcessor =
+let start config =   
     Processor.startRoundRobin config.threadCount {
         name = "Validation" 
-        handler = fun msg -> async {
+        handler = fun self msg -> async {
             match msg with
-            | Validate record ->
-                try
-                    let items = record |> split ","
-                    let word = { 
-                        DbProcessorMessage.WordRecord.empty with
-                            word = items.[0] |> trim
-                            offensiveness = int items.[1]
-                            commonness = int items.[2]
-                            sentiment = int items.[3]
-                            types = items.[4] |> split "/" |> List.map trim |> List.map lower |> Array.ofList
-                    }
+            | Validate (record) ->
+                
+                let outOfRange min max value = 
+                    match value with
+                    | Some v when v >= min && v <= max -> false
+                    | _ -> true
 
-                    match word with 
+                try
+                    match record with 
                     | x when nullOrBlank x.word || 
-                        x.offensiveness < 0 || 
-                        x.offensiveness > 10 ||
-                        x.commonness < 0 || 
-                        x.commonness > 10 ||
-                        x.sentiment < -10 || 
-                        x.sentiment > 10 ->
-                        printfn "Skipping due to invalid value in record: %s" record
+                        x.offensiveness |> outOfRange  0 10 ||                         
+                        x.commonness |> outOfRange 0 10 || 
+                        x.sentiment |> outOfRange -10 10 ->
+                        printfn "Resubmitting due to invalid value in record: %s" (record.ToString())
+                        LlmProcessorMessage.Process x.word |> Processor.dispatch
                     | x when x.types |> Array.forall validTypes.Contains |> not ->
-                        printfn "Skipping due to invalid type in record: %s" record
+                        printfn "Resubmitting due to invalid type in record: %s" (record.ToString())
+                        LlmProcessorMessage.Process x.word |> Processor.dispatch
                     | x -> 
-                        // send valid records for db update
-                        DbProcessorMessage.Update x |> Processor.dispatch dbProcessor
+                        DbProcessorMessage.Update x |> Processor.dispatch
                 with
                 | ex -> 
-                    printfn "Skipping due to error in record: %s" record
+                    printfn "Skipping due to error when validating record: %s" record.word
                     printfn "Error: %s" ex.Message
         }
-        stopped = fun priority withChildren -> async {
-            match withChildren with
-            | ProcessorMessage.StopChildren.WithChildren ->
-                printfn "Stopping Validation Processor children..."
-                Processor.stop dbProcessor priority withChildren |> Async.RunSynchronously
-                printfn "Stopped Validation Processor children."
-            | _ -> ()
-        }
+        stopped = fun _ _ -> async { () }        
+        register = true
     }

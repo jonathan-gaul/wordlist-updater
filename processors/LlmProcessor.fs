@@ -4,6 +4,7 @@ open FSharp.Data
 open System.Text.Json
 open Util
 open LlmProcessorMessage
+open Models
 
 // ======================================================================
 // LLM processor
@@ -103,23 +104,55 @@ let scoreWords (config : Configuration) (words : string array) = async {
             printfn "[%s] no scores received" wordRange
             return []
         else
-            let scoreLines = 
+            let scoredWords = 
                 response
                 |> JsonSerializer.Deserialize<GPT.Response>
                 |> fun x -> x.output[0].content[0].text
                 |> split "\n"
+                |> List.map (fun x -> 
+                    let items = x |> split ","
 
-            printfn "[%s] retrieved %d records" wordRange scoreLines.Length
-            return scoreLines
+                    let item index =
+                        if items.Length > index then
+                            Some items.[index]
+                        else
+                            None
+                    
+                    match item 0 with 
+                    | Some word when word.Length > 0 -> 
+                        Some { WordRecord.empty with
+                                word = word
+                                offensiveness = item 1 |> Option.map int
+                                commonness = item 2 |> Option.map int
+                                sentiment = item 3 |> Option.map int
+                                types = item 4 |> Option.defaultValue "" |> split "/" |> List.map trim |> List.map lower |> Array.ofList
+                            }
+                    | _ -> None)
+                |> List.choose id
+                |> List.filter (fun x -> 
+                    let result = words |> Array.contains x.word
+                    if not result then
+                        printf "Removing %s from LLM Processor output as it was not in the input" x.word
+                    result)
+
+            // Repost any words that weren't retrieved to the LLM processor for another attempt.
+            words 
+            |> Array.except (scoredWords |> List.map (fun x -> x.word))
+            |> Array.iter (fun word -> 
+                printf "Resubmitting %s to LLM Processor as it was not included in the output" word
+                LlmProcessorMessage.Process word |> Processor.dispatch)            
+
+            printfn "[%s] retrieved %d records" wordRange words.Length
+            return scoredWords
 }
 
 /// Start the LLM processor waiting for messages to process.
-let start config validationProcessor =
+let start config =
     let buffer = System.Collections.Generic.List<string>()
 
     Processor.startRoundRobin config.threadCount {
         name = "LLM" 
-        handler = fun msg -> async {
+        handler = fun _ msg -> async {
             match msg with
             | Process word -> 
                 buffer.Add(word)
@@ -127,18 +160,12 @@ let start config validationProcessor =
                 if buffer.Count >= config.batchSize then
                     let words = buffer.ToArray()
                     buffer.Clear()
-                    let! lines = scoreWords config words
-                    lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)                    
+                    let! words = words |> scoreWords config
+                    words |> List.iter (fun word -> ValidationProcessorMessage.Validate word |> Processor.dispatch)
         }
-        stopped = fun priority withChildren -> async {
-            let! lines = buffer.ToArray() |> scoreWords config 
-            lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch validationProcessor)
-
-            match withChildren with 
-            | ProcessorMessage.StopChildren.WithChildren ->
-                printfn "Stopping LLM Processor children..."
-                Processor.stop validationProcessor priority withChildren |> Async.RunSynchronously
-                printfn "Stopped LLM Processor children."
-            | _ -> ()
+        stopped = fun _ _ -> async {
+            let! lines = buffer.ToArray() |> scoreWords config
+            lines |> List.iter (fun line -> ValidationProcessorMessage.Validate line |> Processor.dispatch)
         }
+        register = true
     }
