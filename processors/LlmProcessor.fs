@@ -132,14 +132,14 @@ let scoreWords (config : Configuration) (words : string array) = async {
                 |> List.filter (fun x -> 
                     let result = words |> Array.contains x.word
                     if not result then
-                        printf "Removing %s from LLM Processor output as it was not in the input" x.word
+                        printfn "Removing %s from LLM Processor output as it was not in the input" x.word
                     result)
 
             // Repost any words that weren't retrieved to the LLM processor for another attempt.
             words 
             |> Array.except (scoredWords |> List.map (fun x -> x.word))
             |> Array.iter (fun word -> 
-                printf "Resubmitting %s to LLM Processor as it was not included in the output" word
+                printfn "Resubmitting %s to LLM Processor as it was not included in the output" word
                 LlmProcessorMessage.Process word |> Processor.dispatch)            
 
             printfn "[%s] retrieved %d records" wordRange words.Length
