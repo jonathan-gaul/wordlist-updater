@@ -57,13 +57,14 @@ let start<'TMsg> (options : ProcessStartOptions<'TMsg>) =
                             msg |> options.handler self |> Async.RunSynchronously
                             return! loop ()
                         | Stop (Lowest, _) when inbox.CurrentQueueLength = 0 ->                        
-                                // If there are no items waiting in the queue, post a stop next message.
-                                Stop (Next, Some Lowest) |> inbox.Post
-                                return! loop ()
+                            // If there are no items waiting in the queue, post a stop next message.
+                            Stop (Next, Some Lowest) |> inbox.Post
+                            return! loop ()
                         | Stop (Lowest, _) ->
-                                // There are items remaining in the queue, so just post the message back to the end of the queue.
-                                Stop (Lowest, Some Lowest) |> inbox.Post
-                                return! loop ()
+                            // There are items remaining in the queue, so just post the message back to the end of the queue.
+                            printfn "Requeueing low priority shutdown of %s Processor due to %d item(s) in queue" options.name inbox.CurrentQueueLength
+                            Stop (Lowest, Some Lowest) |> inbox.Post
+                            return! loop ()
                         | Stop (Next, actual) -> 
                             printfn "Stopping %s Processor..." options.name
                             options.stopped self (actual |> Option.defaultValue Next) |> Async.RunSynchronously
@@ -150,11 +151,15 @@ let startRoundRobin<'TMsg> threadCount (options : ProcessStartOptions<'TMsg>) =
                                 // There are no items waiting in the queue, so we can shut down immediately.
                                 Stop (Next, Some Lowest) |> inbox.Post
                             else
+                                printfn "Requeueing low priority shutdown of %s Processor due to %d item(s) in worker queues" options.name remaining
                                 // Return the message to the end of the queue.
                                 Stop (Lowest, actual) |> inbox.Post
+                            return! loop ()
                         | Stop (Lowest, actual) ->
                             // We still have remaining items to process, so return the message to the end of the queue.
+                            printfn "Requeueing low priority shutdown of %s Processor due to %d item(s) in round-robin queue" options.name inbox.CurrentQueueLength
                             Stop (Lowest, actual) |> inbox.Post
+                            return! loop ()
                         | Stop (Next, actual) ->
                             printfn "Stopping %d %s Processors..." threadCount options.name
                         
@@ -170,6 +175,7 @@ let startRoundRobin<'TMsg> threadCount (options : ProcessStartOptions<'TMsg>) =
                             // Signal that the processor has shut down.
                             stopEvent.Set() |> ignore
                             printfn "Stopped %d %s Processors." threadCount options.name
+                            return ()
                     }
 
                     printfn "Starting %d %s Processors..." threadCount options.name

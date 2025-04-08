@@ -22,14 +22,18 @@ type CommandConfig =
       dbConnectionString: string option
 
       /// API key for the LLM service.
-      apiKey: string option }
+      apiKey: string option
+      
+      /// Prefix for words to update.
+      onlyPrefix: string option }
 
     /// Default configuration for the tool.
     static member empty = 
         { llmWordListSize = 50
           dbBatchSize = 50
           dbConnectionString = None
-          apiKey = None }
+          apiKey = None
+          onlyPrefix = None }
 
 /// Parse command line options into a configuration object.
 let rec parseCommandLineRec args config =
@@ -39,6 +43,7 @@ let rec parseCommandLineRec args config =
     | "--db-batch-size" :: value :: rest -> parseCommandLineRec rest { config with dbBatchSize = int value }
     | "--db-connection-string" :: value :: rest -> parseCommandLineRec rest { config with dbConnectionString = Some value }
     | "--llm-word-list-size" :: value :: rest -> parseCommandLineRec rest { config with llmWordListSize = int value }    
+    | "--only-prefix" :: value :: rest -> parseCommandLineRec rest { config with onlyPrefix = Some value }
     | _ :: rest -> parseCommandLineRec rest config
 
 /// Parse environment variables into a configuration object.

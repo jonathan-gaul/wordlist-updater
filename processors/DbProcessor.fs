@@ -67,7 +67,7 @@ let updateWords (connection : SqlConnection) (words : WordRecord array) =
         // parameter binding for better performance.
         command.EnableOptimizedParameterBinding <- true
 
-        printfn($"updating database with {words.Length} word(s)")
+        printfn "[%s - %s] updating database with %d word(s)" (words.[0].word) (words.[words.Length - 1].word) words.Length
 
         // If we do hit a duplicate key error, just retry as the upsert should handle it.
         let mutable retry = true
@@ -90,7 +90,7 @@ let updateWords (connection : SqlConnection) (words : WordRecord array) =
                 printfn "Query error: %s" (ex.ToString())
                 raise ex
 
-        printfn($"updated {updatedCount} record(s)")
+        printfn "[%s - %s] updated %d record(s)" (words.[0].word) (words.[words.Length - 1].word) updatedCount
 
         // Now update word types. There can be multiple types for a word, so they go into a separate table.
         for word in words do

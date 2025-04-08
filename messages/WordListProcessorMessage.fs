@@ -4,5 +4,5 @@
 // Extra messages could be added, for example if we wanted to be able to
 // retrieve a word list from a database or file instead.
 type Message =
-    /// Process a word list from a URL.
+    /// Process a word list from a URL. (URL -> prefix)
     | ProcessUrl of string * string option

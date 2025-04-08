@@ -15,7 +15,7 @@ let options = Config.parseConfig
 let dbProcessor = DbProcessor.start { batchSize = options.dbBatchSize; connectionString = options.dbConnectionString.Value } 
 let validationProcessor = ValidationProcessor.start ValidationProcessor.Configuration.empty 
 let llmProcessor = LlmProcessor.start { LlmProcessor.Configuration.empty with batchSize = options.llmWordListSize; apiKey = options.apiKey |> Option.defaultValue "" }
-let wordListProcessor = WordListProcessor.start
+let wordListProcessor = WordListProcessor.start { prefix = options.onlyPrefix }
 
 // Send a filename to the Word List processor to download.
 WordListProcessorMessage.ProcessUrl ("https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt", None) |> Processor.dispatch
